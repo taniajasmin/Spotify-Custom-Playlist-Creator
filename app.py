@@ -8,10 +8,6 @@ from spotify_service import create_playlist
 
 app = FastAPI(title="AI Playlist Service")
 
-
-# --------------------------
-# Pydantic model for request
-# --------------------------
 class PlaylistRequest(BaseModel):
     answers: Dict[str, str | List[str]]
     song_count: int
@@ -208,3 +204,4 @@ async def generate_playlist_api(payload: PlaylistRequest):
             "keywords": vibe["keywords"]
         }
     }
+
