@@ -3,16 +3,30 @@ from pydantic import BaseModel
 from typing import List, Dict
 import json
 
-from openai_service import generate_playlist  
-from spotify_service import create_playlist    
+from openai_service import generate_playlist
+from spotify_service import create_playlist
 
 app = FastAPI(title="AI Playlist Service")
 
+
+class QuizAnswers(BaseModel):
+    answers: Dict[str, str | List[str]]
+
+
 class PlaylistRequest(BaseModel):
     answers: Dict[str, str | List[str]]
-    song_count: int
+    user_type: str          # "free" or "paid"
+    song_count: int         # backend sets 15 or 50 (AI will enforce)
 
-# VIBE SCORING LOGIC
+# STORE QUIZ ANSWERS from backend
+@app.post("/quiz/answers")
+async def receive_quiz_answers(payload: QuizAnswers):
+    return {
+        "success": True,
+        "received_answers": payload.answers
+    }
+
+# VIBE SCORING ENGINE
 def calculate_vibe_archetype(answers: dict) -> dict:
     scores = {"E": 50, "M": 50, "G": 50, "L": 50, "N": 50}
 
@@ -92,7 +106,7 @@ def calculate_vibe_archetype(answers: dict) -> dict:
     elif "Nice" in q6:
         add({"L": 15})
 
-    # Q7 (list)
+    # Q7 list
     for d in answers["q7"]:
         if "70" in d: add({"N": 20})
         if "80" in d: add({"N": 20})
@@ -100,13 +114,18 @@ def calculate_vibe_archetype(answers: dict) -> dict:
         if "00" in d: add({"N": 10})
         if "10" in d: add({"M": 20})
 
-    # Q8 (list)
+    # Q8 list
     for g in answers["q8"]:
-        if "Pop" in g: add({"N": 10})
-        elif "House" in g: add({"G": 30, "M": 10})
-        elif "R&B" in g: add({"N": 15})
-        elif "Indie" in g: add({"N": 10})
-        elif "Chart" in g: add({"M": 25, "G": 10})
+        if "Pop" in g:
+            add({"N": 10})
+        elif "House" in g:
+            add({"G": 30, "M": 10})
+        elif "R&B" in g:
+            add({"N": 15})
+        elif "Indie" in g:
+            add({"N": 10})
+        elif "Chart" in g:
+            add({"M": 25, "G": 10})
 
     # Q9
     q9 = answers["q9"]
@@ -117,11 +136,10 @@ def calculate_vibe_archetype(answers: dict) -> dict:
     elif "Lose" in q9:
         add({"E": 30})
 
-    # Clamp
+    # clamp
     for k in scores:
         scores[k] = max(0, min(100, scores[k]))
 
-    # Archetype detection
     E, M, G, L, N = scores.values()
 
     vibe_name = "Custom Party Vibe"
@@ -147,11 +165,21 @@ def calculate_vibe_archetype(answers: dict) -> dict:
         "do_not_play": answers["q10"].strip()
     }
 
+
 @app.post("/generate-playlist")
 async def generate_playlist_api(payload: PlaylistRequest):
 
     answers = payload.answers
+    user_type = payload.user_type
     num_songs = payload.song_count
+
+    # Enforce allowed song count
+    if user_type == "free":
+        num_songs = 15
+    elif user_type == "paid":
+        num_songs = 50
+    else:
+        return {"success": False, "error": "Invalid user_type"}
 
     # Compute vibe
     vibe = calculate_vibe_archetype(answers)
@@ -166,13 +194,13 @@ async def generate_playlist_api(payload: PlaylistRequest):
         "num_songs": num_songs
     })
 
-    # Parse AI JSON
+    # Parse JSON
     try:
         data = json.loads(ai_json)
     except:
         return {"success": False, "error": "Invalid JSON from AI", "raw": ai_json}
 
-    # Enforce exact song count
+    # Enforce song count exactly
     tracks = data.get("tracks", [])
     if len(tracks) < num_songs:
         while len(tracks) < num_songs:
@@ -188,7 +216,7 @@ async def generate_playlist_api(payload: PlaylistRequest):
     # Create Spotify playlist
     url = create_playlist(data["title"], data["description"], tracks)
 
-    # Return clean JSON
+    # response
     return {
         "success": True,
         "playlist": {
@@ -204,4 +232,3 @@ async def generate_playlist_api(payload: PlaylistRequest):
             "keywords": vibe["keywords"]
         }
     }
-
