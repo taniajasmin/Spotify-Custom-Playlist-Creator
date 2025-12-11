@@ -1,0 +1,17 @@
+curl -X POST "http://localhost:8000/generate-playlist" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "answers": {
+      "q1": "Wedding Evening",
+      "q2": "High-energy",
+      "q3": "Espresso martinis",
+      "q4": "26–35",
+      "q5": "Dua Lipa – Levitating",
+      "q6": "Nice as an add-on",
+      "q7": ["80s", "90s"],
+      "q8": ["Pop/Disco/Dance Classics", "Chart/Top 40 only"],
+      "q9": "Up and bouncing",
+      "q10": "No Ed Sheeran"
+    },
+    "song_count": 15
+  }'
