@@ -13,5 +13,5 @@ curl -X POST "http://localhost:8000/generate-playlist" \
       "q9": "Up and bouncing",
       "q10": "No Ed Sheeran"
     },
-    "song_count": 15
+    "user_type": "paid"
   }'
