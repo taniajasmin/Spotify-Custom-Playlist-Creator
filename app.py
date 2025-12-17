@@ -10,7 +10,8 @@ app = FastAPI(title="AI Playlist Service")
 
 class PlaylistRequest(BaseModel):
     answers: Dict[str, str | List[str]]
-    song_count: int
+    # song_count: int
+    user_type: str
 
 # VIBE SCORING LOGIC
 def calculate_vibe_archetype(answers: dict) -> dict:
@@ -117,7 +118,7 @@ def calculate_vibe_archetype(answers: dict) -> dict:
     elif "Lose" in q9:
         add({"E": 30})
 
-    # Clamp
+    # Clamp scors
     for k in scores:
         scores[k] = max(0, min(100, scores[k]))
 
@@ -147,11 +148,20 @@ def calculate_vibe_archetype(answers: dict) -> dict:
         "do_not_play": answers["q10"].strip()
     }
 
+# GENERATE PLAYLIST
 @app.post("/generate-playlist")
 async def generate_playlist_api(payload: PlaylistRequest):
 
     answers = payload.answers
-    num_songs = payload.song_count
+    # num_songs = payload.song_count
+    user_type = payload.user_type.lower()
+    
+    if user_type == "free":
+        num_songs = 15
+    elif user_type == "paid":
+        num_songs = 50
+    else:
+        return {"success": False, "error": "Invalid user_type"}
 
     # Compute vibe
     vibe = calculate_vibe_archetype(answers)
@@ -204,4 +214,3 @@ async def generate_playlist_api(payload: PlaylistRequest):
             "keywords": vibe["keywords"]
         }
     }
-
