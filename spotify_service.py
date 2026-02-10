@@ -31,24 +31,37 @@ def normalize(t):
     return re.sub(r"[^a-z0-9]", "", t.lower())
 
 
+# Search Spotify for a track with basic retry handling for rate limits
 def search(headers, q):
-    r = requests.get(
-        "https://api.spotify.com/v1/search",
-        headers=headers,
-        params={"q": q, "type": "track", "limit": 1},
-        timeout=10,
-    )
-    if r.status_code != 200:
-        return None
-    items = r.json().get("tracks", {}).get("items", [])
-    if not items:
-        return None
-    t = items[0]
-    return {
-        "uri": t["uri"],
-        "song": t["name"],
-        "artist": t["artists"][0]["name"],
-    }
+    for _ in range(3):
+        r = requests.get(
+            "https://api.spotify.com/v1/search",
+            headers=headers,
+            params={"q": q, "type": "track", "limit": 1},
+            timeout=10,
+        )
+
+        # If rate limited, wait as instructed by Spotify and retry
+        if r.status_code == 429:
+            wait = int(r.headers.get("Retry-After", 1))
+            time.sleep(wait)
+            continue
+
+        if r.status_code != 200:
+            return None
+
+        items = r.json().get("tracks", {}).get("items", [])
+        if not items:
+            return None
+
+        t = items[0]
+        return {
+            "uri": t["uri"],
+            "song": t["name"],
+            "artist": t["artists"][0]["name"],
+        }
+
+    return None
 
 
 def verify(req, sp):
@@ -84,7 +97,6 @@ def create_playlist(title, description, tracks, banned, target_count):
             t["song"],
             f"artist:{t['artist']}",
         ]:
-            time.sleep(0.15)
             sp = search(headers, q)
             if not sp:
                 continue

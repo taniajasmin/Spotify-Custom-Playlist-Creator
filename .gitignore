@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+venv/
+.env/
+.venv/
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# SQLite / local databases
+*.db
+*.sqlite3
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Uvicorn / FastAPI
+*.pid
+*.sock
+
+# Test / Cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node (if ever added)
+node_modules/
+
+# Temporary
+*.tmp
+*.bak
+*.old
+
+# Compiled
+dist/
+build/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/

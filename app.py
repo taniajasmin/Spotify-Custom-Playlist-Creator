@@ -187,7 +187,10 @@ async def generate_playlist_api(payload: PlaylistRequest):
         }
     )
     try:
-        data = json.loads(ai_json)
+        try:
+            data = json.loads(ai_json)
+        except json.JSONDecodeError:
+            return {"success": False, "error": "AI returned invalid JSON"}
 
         # validate required structure
         if not all(k in data for k in ("title", "description", "tracks")):
@@ -204,7 +207,11 @@ async def generate_playlist_api(payload: PlaylistRequest):
         }
 
 
-    raw = payload.answers.get("q10", "").lower()
+    raw = payload.answers.get("q10", "")
+    if isinstance(raw, list):
+        raw = ",".join(raw)
+    raw = raw.lower()
+
     for p in ["no ", "do not play", "don't play"]:
         raw = raw.replace(p, "")
     banned = [x.strip() for x in raw.split(",") if x.strip()]
@@ -228,7 +235,7 @@ async def generate_playlist_api(payload: PlaylistRequest):
     #         "spotify_url": result["url"],
     #     },
 
-    verified = result["verified_tracks"]
+    verified = result.get("verified_tracks", [])
 
     return {
         "success": True,
