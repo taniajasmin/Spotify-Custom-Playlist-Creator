@@ -14,6 +14,7 @@ class PlaylistRequest(BaseModel):
     answers: Dict[str, Union[str, List[str]]]
     user_type: str
 
+
 # VIBE ENGINE
 def calculate_vibe_archetype(answers: dict) -> dict:
     scores = {"E": 50, "M": 50, "G": 50, "L": 50, "N": 50}
@@ -22,7 +23,6 @@ def calculate_vibe_archetype(answers: dict) -> dict:
         for k, v in d.items():
             scores[k] += v
 
-    # Q1 — EVENT TYPE
     q1 = answers.get("q1", "")
     if "Wedding (Evening" in q1:
         add({"E": 15, "N": 10})
@@ -35,7 +35,6 @@ def calculate_vibe_archetype(answers: dict) -> dict:
     elif "Black-tie" in q1:
         add({"E": -10, "M": -5, "L": 10})
 
-    # Q2 — OVERALL VIBE
     q2 = answers.get("q2", "")
     if "Elegant" in q2:
         add({"E": -5, "M": 15, "G": 5, "L": 10})
@@ -48,7 +47,6 @@ def calculate_vibe_archetype(answers: dict) -> dict:
     elif "Indie" in q2:
         add({"G": -10, "N": 10})
 
-    # Q3 — DRINKS MOMENT
     q3 = answers.get("q3", "")
     if "Champagne" in q3:
         add({"L": 10, "M": 5, "E": -5})
@@ -61,7 +59,6 @@ def calculate_vibe_archetype(answers: dict) -> dict:
     elif "Rosé" in q3:
         add({"G": 10})
 
-    # Q4 — AGE RANGE
     q4 = answers.get("q4", "")
     if "18–25" in q4:
         add({"M": 25, "E": 10})
@@ -74,7 +71,6 @@ def calculate_vibe_archetype(answers: dict) -> dict:
     else:
         add({"N": 10, "E": 5})
 
-    # Q5 — FLOORFILLER
     q5 = answers.get("q5", "")
     if "ABBA" in q5:
         add({"N": 20, "G": 10})
@@ -87,14 +83,12 @@ def calculate_vibe_archetype(answers: dict) -> dict:
     elif "Fleetwood" in q5:
         add({"N": 25})
 
-    # Q6 — SAX
     q6 = answers.get("q6", "")
     if "Absolutely" in q6:
         add({"L": 30})
     elif "Nice" in q6:
         add({"L": 15})
 
-    # Q7 — DECADES (TRACK EXPLICITLY)
     selected_decades = answers.get("q7", [])
     decade_labels = []
     decade_map = {"70s": 20, "80s": 20, "90s": 15, "00s": 10}
@@ -105,7 +99,6 @@ def calculate_vibe_archetype(answers: dict) -> dict:
                 add({"N": score})
                 decade_labels.append(key)
 
-    # Q8 — GENRE LEAN
     for g in answers.get("q8", []):
         if "Pop" in g:
             add({"G": 5, "N": 10})
@@ -118,7 +111,6 @@ def calculate_vibe_archetype(answers: dict) -> dict:
         elif "Chart" in g:
             add({"M": 25, "G": 10})
 
-    # Q9 — LAST HOUR
     q9 = answers.get("q9", "")
     if "Smooth" in q9:
         add({"E": -15})
@@ -127,13 +119,11 @@ def calculate_vibe_archetype(answers: dict) -> dict:
     elif "Lose" in q9:
         add({"E": 30})
 
-    # NORMALISE
     for k in scores:
         scores[k] = max(0, min(100, scores[k]))
 
     E, M, G, L, N = scores.values()
 
-    # ARCHETYPES
     archetype = "CUSTOM"
     title = "Custom Party Vibe"
 
@@ -163,10 +153,9 @@ def calculate_vibe_archetype(answers: dict) -> dict:
         "archetype": archetype,
         "vibe_name": title,
         "keywords": keywords,
-        "do_not_play": answers.get("q10", "")
     }
 
-# API ENDPOINT 
+
 @app.post("/generate-playlist")
 async def generate_playlist_api(payload: PlaylistRequest):
 
@@ -175,6 +164,20 @@ async def generate_playlist_api(payload: PlaylistRequest):
 
     vibe = calculate_vibe_archetype(payload.answers)
 
+    # merge Q10 + Q11 banned artists
+    q10 = payload.answers.get("q10", "")
+    q11 = payload.answers.get("q11", [])
+
+    banned = []
+
+    if isinstance(q10, str) and q10.strip():
+        banned.append(q10.strip())
+
+    if isinstance(q11, list):
+        banned.extend([x.strip() for x in q11 if isinstance(x, str) and x.strip()])
+
+    do_not_play_text = ", ".join(banned)
+
     ai_json = await run_in_threadpool(
         generate_playlist,
         {
@@ -182,39 +185,23 @@ async def generate_playlist_api(payload: PlaylistRequest):
             "vibe_name": vibe["vibe_name"],
             "keywords": vibe["keywords"],
             "vibe_scores": vibe["scores"],
-            "do_not_play": vibe["do_not_play"],
+            "do_not_play": do_not_play_text,
             "num_songs": gpt_count,
         }
     )
-    try:
-        try:
-            data = json.loads(ai_json)
-        except json.JSONDecodeError:
-            return {"success": False, "error": "AI returned invalid JSON"}
 
-        # validate required structure
+    try:
+        data = json.loads(ai_json)
         if not all(k in data for k in ("title", "description", "tracks")):
             raise ValueError("Missing required keys")
-
         if not isinstance(data["tracks"], list):
             raise ValueError("Tracks must be a list")
-
     except Exception:
         return {
             "success": False,
             "error": "Invalid AI response",
             "raw": ai_json,
         }
-
-
-    raw = payload.answers.get("q10", "")
-    if isinstance(raw, list):
-        raw = ",".join(raw)
-    raw = raw.lower()
-
-    for p in ["no ", "do not play", "don't play"]:
-        raw = raw.replace(p, "")
-    banned = [x.strip() for x in raw.split(",") if x.strip()]
 
     result = await run_in_threadpool(
         create_playlist,
@@ -224,16 +211,6 @@ async def generate_playlist_api(payload: PlaylistRequest):
         banned,
         target_count,
     )
-
-    # return {
-    #     "success": True,
-    #     "playlist": {
-    #         "title": data["title"],
-    #         "description": data["description"],
-    #         "vibe": vibe["vibe_name"],
-    #         "spotify_song_count": result["added_count"],
-    #         "spotify_url": result["url"],
-    #     },
 
     verified = result.get("verified_tracks", [])
 
@@ -261,6 +238,7 @@ async def generate_playlist_api(payload: PlaylistRequest):
             "fallbacks": sum(1 for t in verified if t["match_type"] == "track_only"),
         },
     }
+
 
 @app.get("/")
 def health():

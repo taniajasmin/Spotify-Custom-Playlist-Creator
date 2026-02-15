@@ -3,6 +3,7 @@ import base64
 import time
 import re
 import requests
+import unicodedata
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,11 +28,12 @@ def get_token():
     return r.json()["access_token"]
 
 
-def normalize(t):
-    return re.sub(r"[^a-z0-9]", "", t.lower())
+def normalize(text):
+    text = unicodedata.normalize("NFKD", text)
+    text = text.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]", "", text.lower())
 
 
-# Search Spotify for a track with basic retry handling for rate limits
 def search(headers, q):
     for _ in range(3):
         r = requests.get(
@@ -41,7 +43,6 @@ def search(headers, q):
             timeout=10,
         )
 
-        # If rate limited, wait as instructed by Spotify and retry
         if r.status_code == 429:
             wait = int(r.headers.get("Retry-After", 1))
             time.sleep(wait)
@@ -55,22 +56,40 @@ def search(headers, q):
             return None
 
         t = items[0]
+
         return {
             "uri": t["uri"],
             "song": t["name"],
             "artist": t["artists"][0]["name"],
+            "all_artists": [a["name"] for a in t["artists"]],
         }
 
     return None
 
 
-def verify(req, sp):
+def is_banned(sp, banned):
+    banned_norm = [normalize(b) for b in banned]
+
+    for artist in sp.get("all_artists", []):
+        norm_artist = normalize(artist)
+        for b in banned_norm:
+            if b in norm_artist:
+                return True
+    return False
+
+
+def verify(req, sp, banned):
     if normalize(req["artist"]) == normalize(sp["artist"]) and normalize(req["song"]) == normalize(sp["song"]):
         return True, "exact"
+
     if normalize(req["artist"]) == normalize(sp["artist"]):
         return True, "title_variant"
-    if normalize(req["song"]) == normalize(sp["song"]):
-        return True, "track_only"
+
+    # Disable loose matching when banned list exists
+    if not banned:
+        if normalize(req["song"]) == normalize(sp["song"]):
+            return True, "track_only"
+
     return False, "reject"
 
 
@@ -79,6 +98,7 @@ def create_playlist(title, description, tracks, banned, target_count):
     headers = {"Authorization": f"Bearer {token}"}
 
     user = requests.get("https://api.spotify.com/v1/me", headers=headers).json()
+
     playlist = requests.post(
         f"https://api.spotify.com/v1/users/{user['id']}/playlists",
         headers={**headers, "Content-Type": "application/json"},
@@ -101,18 +121,22 @@ def create_playlist(title, description, tracks, banned, target_count):
             if not sp:
                 continue
 
-            if sp["artist"].lower() in banned:
+            ok, match = verify(t, sp, banned)
+            if not ok:
                 continue
 
-            ok, match = verify(t, sp)
-            if not ok:
+            if is_banned(sp, banned):
                 continue
 
             if sp["uri"] in uris:
                 continue
 
             uris.append(sp["uri"])
-            verified.append({"requested": t, "spotify": sp, "match_type": match})
+            verified.append({
+                "requested": t,
+                "spotify": sp,
+                "match_type": match
+            })
             break
 
     if uris:
