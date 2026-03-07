@@ -9,200 +9,112 @@ from spotify_service import create_playlist
 
 app = FastAPI(title="AI Playlist Service")
 
-
 class PlaylistRequest(BaseModel):
     answers: Dict[str, Union[str, List[str]]]
     user_type: str
 
-
-# VIBE ENGINE
 def calculate_vibe_archetype(answers: dict) -> dict:
+    # 1. Base Scores
     scores = {"E": 50, "M": 50, "G": 50, "L": 50, "N": 50}
 
     def add(d):
         for k, v in d.items():
             scores[k] += v
 
+    # Q1: Event context
     q1 = answers.get("q1", "")
-    if "Wedding (Evening" in q1:
-        add({"E": 15, "N": 10})
-    elif "Wedding (Drinks" in q1:
-        add({"E": -20, "L": 15})
-    elif "Corporate" in q1:
-        add({"M": 10, "G": 10})
-    elif "Private" in q1:
-        add({"E": 10, "N": 5})
-    elif "Black-tie" in q1:
-        add({"E": -10, "M": -5, "L": 10})
+    if "Wedding (Evening" in q1: add({"E": 15, "N": 10})
+    elif "Wedding (Drinks" in q1: add({"E": -20, "L": 15})
+    elif "Corporate" in q1: add({"M": 10, "G": 10})
 
+    # Q2: Energy (Updated per Spec V2.1)
     q2 = answers.get("q2", "")
-    if "Elegant" in q2:
-        add({"E": -5, "M": 15, "G": 5, "L": 10})
-    elif "Fun & nostalgic" in q2:
-        add({"N": 25, "E": 5})
-    elif "High-energy" in q2:
-        add({"E": 30, "G": 15})
-    elif "Ibiza" in q2:
-        add({"E": 15, "G": 30, "M": 10})
-    elif "Indie" in q2:
-        add({"G": -10, "N": 10})
+    if "High-energy" in q2: add({"E": 25, "G": 5})
+    elif "Medium" in q2 or "Elegant" in q2: add({"E": 15})
+    elif "Low" in q2: add({"E": 5, "G": -2})
 
-    q3 = answers.get("q3", "")
-    if "Champagne" in q3:
-        add({"L": 10, "M": 5, "E": -5})
-    elif "Espresso" in q3:
-        add({"E": 10, "M": 10})
-    elif "Craft" in q3:
-        add({"M": 15, "G": 5})
-    elif "Pints" in q3:
-        add({"N": 15})
-    elif "Rosé" in q3:
-        add({"G": 10})
-
-    q4 = answers.get("q4", "")
-    if "18–25" in q4:
-        add({"M": 25, "E": 10})
-    elif "26–35" in q4:
-        add({"M": 10, "E": 5})
-    elif "36–45" in q4:
-        add({"N": 10})
-    elif "46–60" in q4:
-        add({"N": 20})
-    else:
-        add({"N": 10, "E": 5})
-
-    q5 = answers.get("q5", "")
-    if "ABBA" in q5:
-        add({"N": 20, "G": 10})
-    elif "Calvin" in q5:
-        add({"E": 10, "G": 15, "M": 10})
-    elif "Dua" in q5:
-        add({"M": 15, "G": 10})
-    elif "Queen" in q5:
-        add({"N": 20, "E": 10})
-    elif "Fleetwood" in q5:
-        add({"N": 25})
-
-    q6 = answers.get("q6", "")
-    if "Absolutely" in q6:
-        add({"L": 30})
-    elif "Nice" in q6:
-        add({"L": 15})
-
+    # Q7: Decades (Era Bias)
     selected_decades = answers.get("q7", [])
-    decade_labels = []
     decade_map = {"70s": 20, "80s": 20, "90s": 15, "00s": 10}
-
     for d in selected_decades:
         for key, score in decade_map.items():
-            if key in d:
-                add({"N": score})
-                decade_labels.append(key)
+            if key in d: add({"N": score})
 
-    for g in answers.get("q8", []):
-        if "Pop" in g:
-            add({"G": 5, "N": 10})
+    # Q8: Genre Pick (DOMINANT DRIVER per Spec V2.1)
+    primary_genre = "GENERAL"
+    genres = answers.get("q8", [])
+    for g in genres:
+        if "Indie" in g:
+            add({"G": -30, "N": 10, "E": 5})
+            primary_genre = "INDIE_ALT"
         elif "House" in g:
-            add({"G": 30, "M": 10})
-        elif "R&B" in g:
-            add({"N": 15, "E": 10})
-        elif "Indie" in g:
-            add({"G": -5, "N": 10})
-        elif "Chart" in g:
-            add({"M": 25, "G": 10})
+            add({"G": 30, "E": 10, "M": 10})
+            primary_genre = "HOUSE_DANCE"
+        elif "Disco" in g or "Funk" in g:
+            add({"G": -10, "N": 20, "E": 5})
+            primary_genre = "DISCO_FUNK"
+        elif "Pop" in g or "Chart" in g:
+            add({"M": 20, "G": 5, "E": 5})
+            primary_genre = "POP_CHART"
 
-    q9 = answers.get("q9", "")
-    if "Smooth" in q9:
-        add({"E": -15})
-    elif "Up and bouncing" in q9:
-        add({"E": 15})
-    elif "Lose" in q9:
-        add({"E": 30})
-
+    # Clip scores 0-100
     for k in scores:
         scores[k] = max(0, min(100, scores[k]))
 
     E, M, G, L, N = scores.values()
 
+    # 2. Archetype Selection (Thresholds)
     archetype = "CUSTOM"
-    title = "Custom Party Vibe"
-
-    if G >= 65 and E >= 60 and M >= 50:
-        archetype = "IBIZA_AFTERGLOW"
-        title = "Ibiza Afterglow Set"
-    elif E <= 40 and L >= 55 and 35 <= M <= 70:
-        archetype = "CHAMPAGNE_SUNSET"
-        title = "Champagne Sunset Mix"
-    elif N >= 60 and E >= 45:
-        archetype = "GOLDEN_NOSTALGIA"
-        title = "Golden Nostalgia Floorfillers"
-    elif M >= 65 and 45 <= E <= 80:
-        archetype = "MODERN_LUXE"
-        title = "Modern Luxe Party Set"
-    elif G <= 30 and N >= 35:
-        archetype = "INDIE_DISCO"
-        title = "Indie Disco Lights"
-    elif E <= 30 and 35 <= N <= 70:
-        archetype = "CLASSIC_CHIC"
-        title = "Classic Chic Reception"
-
-    keywords = f"{', '.join(decade_labels)} singalongs" if decade_labels else "party favourites"
-
-    return {
-        "scores": scores,
+    if G >= 65 and E >= 60: archetype = "IBIZA_AFTERGLOW"
+    elif E <= 40 and L >= 55: archetype = "CHAMPAGNE_SUNSET"
+    elif N >= 65 and E >= 45: archetype = "GOLDEN_NOSTALGIA"
+    elif M >= 65 and E >= 50: archetype = "MODERN_LUXE"
+    elif G <= 35 and N >= 40: archetype = "INDIE_DISCO"
+    
+    # 3. Create the Vibe Fingerprint (DNA for OpenAI)
+    fingerprint = {
         "archetype": archetype,
-        "vibe_name": title,
-        "keywords": keywords,
+        "primary_genre": primary_genre,
+        "energy_level": "HIGH" if E > 70 else "MEDIUM" if E > 40 else "LOW",
+        "era_bias": selected_decades,
+        "genre_constraints": {
+            "target_percent": 75 if primary_genre != "GENERAL" else 40,
+            "prohibited_drift": "EDM/House" if primary_genre == "INDIE_ALT" else "Indie"
+        }
     }
 
+    return fingerprint
 
 @app.post("/generate-playlist")
 async def generate_playlist_api(payload: PlaylistRequest):
-
     target_count = 15 if payload.user_type.lower() == "free" else 50
-    gpt_count = 25 if payload.user_type.lower() == "free" else 65
+    
+    # Calculate Fingerprint instead of just a label
+    fingerprint = calculate_vibe_archetype(payload.answers)
 
-    vibe = calculate_vibe_archetype(payload.answers)
-
-    # merge Q10 + Q11 banned artists
-    q10 = payload.answers.get("q10", "")
-    q11 = payload.answers.get("q11", [])
-
+    # Merge Q10 + Q11 Banned Artists
     banned = []
+    q10 = payload.answers.get("q10", "")
+    if isinstance(q10, str) and q10.strip(): banned.append(q10.strip())
+    q11 = payload.answers.get("q11", [])
+    if isinstance(q11, list): banned.extend([str(x).strip() for x in q11 if x])
 
-    if isinstance(q10, str) and q10.strip():
-        banned.append(q10.strip())
-
-    if isinstance(q11, list):
-        banned.extend([x.strip() for x in q11 if isinstance(x, str) and x.strip()])
-
-    do_not_play_text = ", ".join(banned)
-
+    # AI Generation with Fingerprint
     ai_json = await run_in_threadpool(
         generate_playlist,
         {
-            "event": payload.answers.get("q1", ""),
-            "vibe_name": vibe["vibe_name"],
-            "keywords": vibe["keywords"],
-            "vibe_scores": vibe["scores"],
-            "do_not_play": do_not_play_text,
-            "num_songs": gpt_count,
+            "fingerprint": fingerprint,
+            "do_not_play": ", ".join(banned),
+            "num_songs": 25 if payload.user_type.lower() == "free" else 65,
         }
     )
 
     try:
         data = json.loads(ai_json)
-        if not all(k in data for k in ("title", "description", "tracks")):
-            raise ValueError("Missing required keys")
-        if not isinstance(data["tracks"], list):
-            raise ValueError("Tracks must be a list")
     except Exception:
-        return {
-            "success": False,
-            "error": "Invalid AI response",
-            "raw": ai_json,
-        }
+        return {"success": False, "error": "AI Response Error"}
 
+    # Spotify Creation
     result = await run_in_threadpool(
         create_playlist,
         data["title"],
@@ -212,34 +124,16 @@ async def generate_playlist_api(payload: PlaylistRequest):
         target_count,
     )
 
-    verified = result.get("verified_tracks", [])
-
     return {
         "success": True,
         "playlist": {
             "title": data["title"],
             "description": data["description"],
-            "vibe": vibe["vibe_name"],
-            "requested_song_count": target_count,
-            "spotify_song_count": result["added_count"],
+            "vibe_archetype": fingerprint["archetype"],
             "spotify_url": result["url"],
-            "tracks": [
-                {
-                    "artist": t["spotify"]["artist"],
-                    "song": t["spotify"]["song"],
-                    "match_type": t["match_type"],
-                }
-                for t in verified
-            ],
-        },
-        "verification": {
-            "exact": sum(1 for t in verified if t["match_type"] == "exact"),
-            "variants": sum(1 for t in verified if t["match_type"] == "title_variant"),
-            "fallbacks": sum(1 for t in verified if t["match_type"] == "track_only"),
-        },
+            "tracks": [{"artist": t["spotify"]["artist"], "song": t["spotify"]["song"]} for t in result["verified_tracks"]]
+        }
     }
 
-
 @app.get("/")
-def health():
-    return {"status": "ok"}
+def health(): return {"status": "ok"}
